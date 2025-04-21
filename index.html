@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SeaDash — Studio Edition</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --primary:#00c1ff;
+  --accent:#ffde70;
+  --bg:#6fd9ff;
+  --shadow:rgba(0,0,0,.25);
+  font-size:clamp(12px,2.4vmin,18px);
+}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;touch-action:none;-webkit-user-select:none;}
+#scene{width:100%;height:100%;display:block}
+button{font-family:inherit;cursor:pointer}
+#ui{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:2}
+#scoreBox{margin-top:calc(env(safe-area-inset-top,0) + 10px);font-size:2rem;font-weight:700;color:#fff;text-shadow:0 0 6px var(--shadow)}
+#bestBox{margin-top:.25rem;font-size:1rem;color:#fff;text-shadow:0 0 4px var(--shadow)}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.35);gap:1.5rem;pointer-events:auto;z-index:3}
+.hidden{display:none!important}
+.pill{padding:.7rem 2.2rem;border:none;border-radius:999px;background:var(--accent);color:#333;font-size:1.2rem;font-weight:700;box-shadow:0 4px 8px var(--shadow);transition:transform .1s}
+.pill:active{transform:scale(.95)}
+.logo{font-size:3rem;color:#fff;text-shadow:0 0 10px var(--shadow);animation:pop 1s cubic-bezier(.25,.7,.35,1.2) forwards}
+@keyframes pop{0%{opacity:0;transform:scale(.6)}100%{opacity:1;transform:scale(1)}}
+.bubbleLayer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="bubbleLayer" id="bubbles"></div>
+
+<div id="ui">
+  <div id="scoreBox">0</div>
+  <div id="bestBox"></div>
+</div>
+
+<!-- Main Menu -->
+<div id="menu" class="overlay">
+  <h1 class="logo">SeaDash</h1>
+  <button id="playBtn" class="pill" aria-label="Play">Play</button>
+</div>
+
+<!-- Game Over -->
+<div id="gameOver" class="overlay hidden">
+  <h2 class="logo" style="font-size:2.2rem">Game Over</h2>
+  <div id="goScore" style="font-size:1.4rem;color:#fff;text-shadow:0 0 5px var(--shadow)"></div>
+  <button id="retryBtn" class="pill" aria-label="Retry">Retry</button>
+</div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+const GRAV=-0.0035, FLAP=0.07, RADIUS=0.5, GAP=3, SPEED=0.08, SPACING=7;
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setPixelRatio(devicePixelRatio);
+const scene=new THREE.Scene();const BG=0x6fd9ff;scene.background=new THREE.Color(BG);scene.fog=new THREE.Fog(BG,70,150);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,300);camera.position.set(0,0,14);
+scene.add(new THREE.HemisphereLight(0xdfffff,0x0077aa,1.25));const sun=new THREE.DirectionalLight(0xffffff,1);sun.position.set(7,15,4);scene.add(sun);scene.add(new THREE.AmbientLight(0xffffff,0.4));
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}resize();window.addEventListener('resize',resize);
+function coralMat(){const p=[0xff89c7,0xffd97d,0xe062ff,0x46eaff,0xff7a7a,0x77ffae];return new THREE.MeshStandardMaterial({color:p[Math.random()*p.length|0],flatShading:true});}
+function createFish(){const g=new THREE.Group();const m=new THREE.MeshStandardMaterial({color:0xfff48f,flatShading:true});
+g.add(new THREE.Mesh(new THREE.SphereGeometry(0.6,16,16),m));const tail=new THREE.Mesh(new THREE.ConeGeometry(0.45,0.7,8),m);tail.rotation.z=Math.PI;tail.position.x=-0.9;g.add(tail);
+const eyeM=new THREE.MeshBasicMaterial({color:0});const eye=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,8),eyeM);eye.position.set(0.4,0.23,0.5);g.add(eye);const eye2=eye.clone();eye2.position.z=-0.5;g.add(eye2);return g;}
+let fish,vy=0,pipes=[],score=0,best=+localStorage.getItem('sd_best')||0,state='menu';
+const uiScore=document.getElementById('scoreBox'),bestBox=document.getElementById('bestBox');bestBox.textContent='Best: '+best;
+const menu=document.getElementById('menu'),playBtn=document.getElementById('playBtn');const go=document.getElementById('gameOver'),goScore=document.getElementById('goScore'),retryBtn=document.getElementById('retryBtn');
+function addPipe(x){const g=new THREE.Group();g.position.x=x;const topH=Math.random()*4+2,bottomH=12-topH-GAP,r=1+(Math.random()*0.4-0.2);
+const top=new THREE.Mesh(new THREE.CylinderGeometry(r*0.75,r,topH,6,1),coralMat());top.position.set(0,GAP/2+bottomH+topH/2,0);top.rotation.z=Math.random()*0.35-0.175;g.add(top);
+const bot=new THREE.Mesh(new THREE.CylinderGeometry(r,r*0.75,bottomH,6,1),coralMat());bot.position.set(0,-GAP/2-bottomH/2,0);bot.rotation.z=Math.random()*0.35-0.175;g.add(bot);
+scene.add(g);pipes.push(g);}
+function resetWorld(){pipes.forEach(p=>scene.remove(p));pipes=[];for(let i=0;i<7;i++)addPipe(i*SPACING+24);if(!fish){fish=createFish();scene.add(fish);}fish.position.set(0,0,0);vy=0;camera.position.y=0;}
+function vibrate(){navigator.vibrate?.(10);}
+canvas.addEventListener('pointerdown',()=>{if(state==="play"){vy=FLAP;vibrate();}});window.addEventListener('keydown',e=>{if(e.code==="Space"&&state==="play"){vy=FLAP;vibrate();}});
+playBtn.onclick=()=>start();retryBtn.onclick=()=>start();
+function start(){state="play";score=0;uiScore.textContent=0;menu.classList.add("hidden");go.classList.add("hidden");resetWorld();vibrate();}
+function gameOver(){state="over";go.classList.remove("hidden");goScore.textContent="Score: "+score;if(score>best){best=score;localStorage.setItem("sd_best",best);bestBox.textContent="Best: "+best;goScore.textContent+=" 🎉";}vibrate();}
+function update(){vy+=GRAV;fish.position.y+=vy;fish.rotation.z=-vy*9;camera.position.y=THREE.MathUtils.lerp(camera.position.y,fish.position.y,0.09);
+const sphere=new THREE.Sphere(fish.position.clone(),RADIUS);for(let i=pipes.length-1;i>=0;i--){const g=pipes[i];g.position.x-=SPEED;
+if(g.position.x<-22){scene.remove(g);pipes.splice(i,1);addPipe(Math.max(...pipes.map(p=>p.position.x),0)+SPACING);continue;}
+if(!g.userData.pass&&g.position.x<fish.position.x-1){g.userData.pass=true;++score;uiScore.textContent=score;}
+for(const coral of g.children){coral.geometry.computeBoundingBox();const box=coral.geometry.boundingBox.clone().applyMatrix4(coral.matrixWorld);if(box.intersectsSphere(sphere)){gameOver();return;}}}
+if(fish.position.y<-7||fish.position.y>8)gameOver();}
+function loop(){requestAnimationFrame(loop);if(state==="play")update();renderer.render(scene,camera);}loop();
+const bubbleLayer=document.getElementById('bubbles');const style=document.createElement('style');style.textContent='@keyframes rise{to{transform:translateY(-110vh) scale(.8);opacity:0}}';document.head.appendChild(style);
+function spawnBubbles(){for(let i=0;i<6;i++){const b=document.createElement("div"),s=Math.random()*4+2;Object.assign(b.style,{position:"absolute",borderRadius:"50%",background:"rgba(255,255,255,.4)",left:Math.random()*100+"%",width:s+"px",height:s+"px",bottom:"-10px",opacity:.4+Math.random()*.5,animation:`rise ${4+Math.random()*4}s linear infinite`});bubbleLayer.appendChild(b);}}
+spawnBubbles();
+</script>
+</body>
+</html>
